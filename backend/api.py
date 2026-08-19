@@ -1,7 +1,7 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.contrib.auth import authenticate, get_user_model
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import serializers, status, viewsets
@@ -179,20 +179,34 @@ class MessageViewSet(viewsets.ModelViewSet):
         if not Membership.objects.filter(organization=conversation.organization, user=self.request.user).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You are not a member of this organization.")
-
         message = serializer.save(sender=self.request.user, direction=Message.Direction.OUTBOUND)
-        Conversation.objects.filter(pk=conversation.pk).update(
-            last_message_at=timezone.now(),
-            updated_at=timezone.now(),
-        )
-
+        Conversation.objects.filter(pk=conversation.pk).update(last_message_at=timezone.now(), updated_at=timezone.now())
         payload = MessageSerializer(message).data
         channel_layer = get_channel_layer()
         if channel_layer:
-            async_to_sync(channel_layer.group_send)(
-                f"conversation_{conversation.pk}",
-                {"type": "message_event", "message": payload},
-            )
+            async_to_sync(channel_layer.group_send)(f"conversation_{conversation.pk}", {"type": "message_event", "message": payload})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def dashboard(request):
+    raw = request.query_params.get("organization") or request.headers.get("X-Organization-ID")
+    try:
+        org_id = int(raw)
+    except (TypeError, ValueError):
+        return Response({"detail": "A valid organization is required."}, status=status.HTTP_400_BAD_REQUEST)
+    if not Membership.objects.filter(organization_id=org_id, user=request.user).exists():
+        return Response({"detail": "Organization access denied."}, status=status.HTTP_403_FORBIDDEN)
+    conversations = Conversation.objects.filter(organization_id=org_id)
+    leads = Lead.objects.filter(organization_id=org_id)
+    customers = Customer.objects.filter(organization_id=org_id)
+    unread = Message.objects.filter(conversation__organization_id=org_id, is_read=False, direction=Message.Direction.INBOUND).count()
+    recent_messages = Message.objects.filter(conversation__organization_id=org_id).select_related('conversation__customer', 'conversation__channel').order_by('-created_at')[:8]
+    return Response({
+        "organization_id": org_id,
+        "stats": {"conversations": conversations.count(), "customers": customers.count(), "leads": leads.count(), "unread_messages": unread},
+        "recent_activity": [{"id": m.id, "customer": m.conversation.customer.full_name, "channel": m.conversation.channel.type, "content": m.content, "direction": m.direction, "created_at": m.created_at} for m in recent_messages],
+    })
 
 
 @api_view(["GET"])
