@@ -46,6 +46,7 @@ DATABASES = {'default': {
     'OPTIONS': {'charset': 'utf8mb4'},
 }}
 
+AUTH_USER_MODEL = 'accounts.User'
 AUTH_PASSWORD_VALIDATORS = []
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Kathmandu'
