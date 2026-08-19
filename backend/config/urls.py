@@ -11,10 +11,12 @@ from api import (
     CustomerViewSet,
     LeadViewSet,
     MessageViewSet,
+    dashboard,
     login,
     me,
     register,
 )
+from apps.channels.webhooks import channel_webhook
 
 
 class HealthView(APIView):
@@ -39,5 +41,7 @@ urlpatterns = [
     path('api/auth/register/', register, name='register'),
     path('api/auth/login/', login, name='login'),
     path('api/auth/me/', me, name='me'),
+    path('api/dashboard/', dashboard, name='dashboard'),
+    path('api/webhooks/channel/<int:channel_id>/', channel_webhook, name='channel-webhook'),
     path('api/', include(router.urls)),
 ]
