@@ -7,10 +7,11 @@ export type Lead = { id:number; organization:number; customer:number; customer_n
 export type Conversation = { id:number; organization:number; customer:number; customer_name:string; channel:number; channel_name:string; channel_type:string; assigned_to:number|null; assigned_to_name:string|null; status:string; unread_count:number; last_message_at:string|null };
 export type Message = { id:number; conversation:number; sender:number|null; sender_name:string; direction:'inbound'|'outbound'|'internal'; message_type:string; content:string; attachment_url:string; metadata:Record<string,unknown>; is_read:boolean; created_at:string };
 export type DashboardResponse = { organization_id:number; stats:{conversations:number;customers:number;leads:number;unread_messages:number}; recent_activity:{id:number;customer:string;channel:string;content:string;direction:string;created_at:string}[] };
+export type Channel = { id:number; organization:number; type:string; name:string; external_id:string; is_active:boolean; metadata:Record<string, unknown> };
 
 async function request<T>(path:string, options:RequestInit={}):Promise<T>{
   const token=localStorage.getItem('crm_access_token');
-  const response=await fetch(`${API_URL}${path}`,{...options,headers:{'Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{ }),(localStorage.getItem('crm_organization_id')?{'X-Organization-ID':localStorage.getItem('crm_organization_id')!}:{ }),...(options.headers||{})}});
+  const response=await fetch(`${API_URL}${path}`,{...options,headers:{...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...(token?{Authorization:`Bearer ${token}`}:{ }),(localStorage.getItem('crm_organization_id')?{'X-Organization-ID':localStorage.getItem('crm_organization_id')!}:{ }),...(options.headers||{})}});
   const data=await response.json().catch(()=>({}));
   if(!response.ok)throw new Error(data.detail||'Request failed');
   return data as T;
@@ -28,5 +29,7 @@ export const api={
   conversationMessages:(conversationId:number)=>request<Message[]>(`/messages/?conversation=${conversationId}`),
   sendMessage:(conversationId:number,content:string)=>request<Message>('/messages/',{method:'POST',body:JSON.stringify({conversation:conversationId,content,message_type:'text'})}),
   markConversationRead:(id:number)=>request<Conversation>(`/conversations/${id}/mark_read/`,{method:'POST'}),
-  channels:()=>request<unknown[]>('/channels/'),
+  channels:()=>request<Channel[]>('/channels/'),
+  youtubeOAuthUrl:()=>request<{authorization_url:string}>('/youtube/oauth/url/'),
+  uploadYouTubeVideo:({channelId,video,title,description,tags,privacy}:{channelId:number;video:File;title:string;description:string;tags:string;privacy:string})=>{const form=new FormData();form.append('channel_id',String(channelId));form.append('video',video);form.append('title',title);form.append('description',description);form.append('tags',tags);form.append('privacy_status',privacy);return request<{id:string;title:string}>('/youtube/upload/',{method:'POST',body:form});},
 };
