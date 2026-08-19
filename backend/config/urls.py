@@ -18,6 +18,12 @@ from api import (
 )
 from apps.channels.webhooks import channel_webhook
 from apps.integrations.youtube_api import YouTubeUploadView
+from apps.integrations.youtube_management import (
+    YouTubeCommentsView,
+    YouTubeReplyView,
+    YouTubeVideoDetailView,
+    YouTubeVideosView,
+)
 from apps.integrations.youtube_oauth import YouTubeOAuthCallbackView, YouTubeOAuthUrlView
 
 
@@ -48,5 +54,9 @@ urlpatterns = [
     path('api/youtube/upload/', YouTubeUploadView.as_view(), name='youtube-upload'),
     path('api/youtube/oauth/url/', YouTubeOAuthUrlView.as_view(), name='youtube-oauth-url'),
     path('api/youtube/oauth/callback/', YouTubeOAuthCallbackView.as_view(), name='youtube-oauth-callback'),
+    path('api/youtube/channels/<int:channel_id>/videos/', YouTubeVideosView.as_view(), name='youtube-videos'),
+    path('api/youtube/channels/<int:channel_id>/videos/<str:video_id>/', YouTubeVideoDetailView.as_view(), name='youtube-video-detail'),
+    path('api/youtube/channels/<int:channel_id>/videos/<str:video_id>/comments/', YouTubeCommentsView.as_view(), name='youtube-comments'),
+    path('api/youtube/channels/<int:channel_id>/comments/<str:comment_id>/reply/', YouTubeReplyView.as_view(), name='youtube-comment-reply'),
     path('api/', include(router.urls)),
 ]
