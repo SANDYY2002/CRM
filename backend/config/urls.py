@@ -18,6 +18,7 @@ from api import (
 )
 from apps.channels.webhooks import channel_webhook
 from apps.integrations.youtube_api import YouTubeUploadView
+from apps.integrations.youtube_oauth import YouTubeOAuthCallbackView, YouTubeOAuthUrlView
 
 
 class HealthView(APIView):
@@ -45,5 +46,7 @@ urlpatterns = [
     path('api/dashboard/', dashboard, name='dashboard'),
     path('api/webhooks/channel/<int:channel_id>/', channel_webhook, name='channel-webhook'),
     path('api/youtube/upload/', YouTubeUploadView.as_view(), name='youtube-upload'),
+    path('api/youtube/oauth/url/', YouTubeOAuthUrlView.as_view(), name='youtube-oauth-url'),
+    path('api/youtube/oauth/callback/', YouTubeOAuthCallbackView.as_view(), name='youtube-oauth-callback'),
     path('api/', include(router.urls)),
 ]
