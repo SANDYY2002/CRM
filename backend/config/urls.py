@@ -17,6 +17,7 @@ from api import (
     register,
 )
 from apps.channels.webhooks import channel_webhook
+from apps.integrations.youtube_api import YouTubeUploadView
 
 
 class HealthView(APIView):
@@ -43,5 +44,6 @@ urlpatterns = [
     path('api/auth/me/', me, name='me'),
     path('api/dashboard/', dashboard, name='dashboard'),
     path('api/webhooks/channel/<int:channel_id>/', channel_webhook, name='channel-webhook'),
+    path('api/youtube/upload/', YouTubeUploadView.as_view(), name='youtube-upload'),
     path('api/', include(router.urls)),
 ]
