@@ -1,5 +1,8 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.contrib.auth import authenticate, get_user_model
 from django.db import transaction
+from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
@@ -89,7 +92,7 @@ class MessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = Message
         fields = ("id", "conversation", "sender", "sender_name", "external_id", "direction", "message_type", "content", "attachment_url", "metadata", "is_read", "created_at")
-        read_only_fields = ("id", "sender", "external_id", "created_at")
+        read_only_fields = ("id", "sender", "external_id", "created_at", "direction")
 
     def get_sender_name(self, obj):
         return obj.sender.get_full_name() if obj.sender else "Customer"
@@ -167,19 +170,29 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         org_id = self.request.query_params.get("organization") or self.request.headers.get("X-Organization-ID")
-        qs = self.queryset
         if not org_id:
-            return qs.none()
-        return qs.filter(conversation__organization_id=org_id, conversation__organization__members=self.request.user)
+            return self.queryset.none()
+        return self.queryset.filter(conversation__organization_id=org_id, conversation__organization__members=self.request.user)
 
     def perform_create(self, serializer):
         conversation = serializer.validated_data["conversation"]
         if not Membership.objects.filter(organization=conversation.organization, user=self.request.user).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You are not a member of this organization.")
+
         message = serializer.save(sender=self.request.user, direction=Message.Direction.OUTBOUND)
-        from django.utils import timezone
-        Conversation.objects.filter(pk=conversation.pk).update(last_message_at=timezone.now(), updated_at=timezone.now())
+        Conversation.objects.filter(pk=conversation.pk).update(
+            last_message_at=timezone.now(),
+            updated_at=timezone.now(),
+        )
+
+        payload = MessageSerializer(message).data
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                f"conversation_{conversation.pk}",
+                {"type": "message_event", "message": payload},
+            )
 
 
 @api_view(["GET"])
