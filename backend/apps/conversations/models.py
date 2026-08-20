@@ -1,5 +1,8 @@
 from django.conf import settings
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from apps.channels.adapters.providers import get_adapter
 from apps.channels.models import Channel
 from apps.customers.models import Customer
 from apps.organizations.models import Organization
@@ -56,3 +59,30 @@ class Message(models.Model):
             models.Index(fields=["conversation", "created_at"]),
             models.Index(fields=["external_id"]),
         ]
+
+
+@receiver(post_save, sender=Message)
+def deliver_outbound_message(sender, instance: Message, created: bool, **kwargs):
+    if not created or instance.direction != Message.Direction.OUTBOUND or instance.external_id:
+        return
+    if not instance.content.strip() or instance.conversation.channel.type == Channel.Types.YOUTUBE:
+        return
+
+    conversation = instance.conversation
+    external_ids = (conversation.customer.metadata or {}).get("external_ids") or {}
+    external_customer_id = external_ids.get(conversation.channel.type)
+    if not external_customer_id:
+        instance.metadata = {**instance.metadata, "delivery_status": "not_sent", "delivery_error": "Customer has no provider external ID."}
+        Message.objects.filter(pk=instance.pk).update(metadata=instance.metadata)
+        return
+
+    try:
+        result = get_adapter(conversation.channel.type, conversation.channel.credentials).send_message(
+            str(external_customer_id), instance.content
+        )
+        external_id = str(result.get("external_message_id") or "")
+        metadata = {**instance.metadata, "delivery_status": "sent", "provider_response": result.get("raw", {})}
+        Message.objects.filter(pk=instance.pk).update(external_id=external_id, metadata=metadata)
+    except Exception as exc:  # provider failures must remain visible in the CRM
+        metadata = {**instance.metadata, "delivery_status": "failed", "delivery_error": str(exc)}
+        Message.objects.filter(pk=instance.pk).update(metadata=metadata)
