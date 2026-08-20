@@ -1,6 +1,6 @@
 import json
 
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from .adapters import get_adapter
@@ -21,6 +21,13 @@ def channel_webhook(request, channel_id: int):
     adapter = get_adapter(channel.type, channel.credentials)
 
     if request.method == "GET":
+        # Meta webhook verification handshake.
+        mode = request.GET.get("hub.mode")
+        token = request.GET.get("hub.verify_token")
+        challenge = request.GET.get("hub.challenge")
+        configured_token = str(channel.credentials.get("verify_token", ""))
+        if mode == "subscribe" and token and challenge and configured_token and hmac_compare(token, configured_token):
+            return HttpResponse(challenge, content_type="text/plain")
         return JsonResponse({"status": "ready", "channel": channel.type})
 
     if not adapter.verify_webhook(dict(request.headers), request.body):
@@ -38,3 +45,8 @@ def channel_webhook(request, channel_id: int):
         created.append(message.id)
 
     return JsonResponse({"status": "accepted", "message_ids": created})
+
+
+def hmac_compare(left: str, right: str) -> bool:
+    import hmac
+    return hmac.compare_digest(left, right)
