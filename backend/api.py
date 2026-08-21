@@ -1,7 +1,7 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.contrib.auth import authenticate, get_user_model
-from django.db import models, transaction
+from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 from rest_framework import serializers, status, viewsets
@@ -10,6 +10,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.channels.adapters.providers import get_adapter
 from apps.channels.models import Channel
 from apps.conversations.models import Conversation, Message
 from apps.customers.models import Customer, CustomerTag
@@ -66,7 +67,7 @@ class LeadSerializer(serializers.ModelSerializer):
 class ChannelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Channel
-        fields = ("id", "organization", "type", "name", "external_id", "is_active", "metadata", "created_at", "updated_at")
+        fields = ("id", "organization", "type", "name", "external_id", "is_active", "credentials", "metadata", "created_at", "updated_at")
         read_only_fields = ("id", "organization", "created_at", "updated_at")
         extra_kwargs = {"credentials": {"write_only": True}}
 
@@ -131,7 +132,6 @@ class OrganizationScopedViewSet(viewsets.ModelViewSet):
 class CustomerViewSet(OrganizationScopedViewSet):
     queryset = Customer.objects.select_related("organization").prefetch_related("tags")
     serializer_class = CustomerSerializer
-    search_fields = ("first_name", "last_name", "email", "phone", "company")
 
 
 class CustomerTagViewSet(OrganizationScopedViewSet):
@@ -148,6 +148,26 @@ class ChannelViewSet(OrganizationScopedViewSet):
     queryset = Channel.objects.all()
     serializer_class = ChannelSerializer
 
+    @action(detail=True, methods=["post"])
+    def health(self, request, pk=None):
+        channel = self.get_object()
+        credentials = channel.credentials or {}
+        required = {
+            Channel.Types.FACEBOOK: ("access_token", "app_secret", "send_endpoint"),
+            Channel.Types.INSTAGRAM: ("access_token", "app_secret", "send_endpoint"),
+            Channel.Types.WHATSAPP: ("access_token", "phone_number_id"),
+            Channel.Types.VIBER: ("auth_token",),
+            Channel.Types.YOUTUBE: ("access_token", "refresh_token"),
+        }.get(channel.type, ())
+        missing = [key for key in required if not credentials.get(key)]
+        return Response({
+            "id": channel.id,
+            "type": channel.type,
+            "connected": channel.is_active and not missing,
+            "missing": missing,
+            "external_id": channel.external_id,
+        })
+
 
 class ConversationViewSet(OrganizationScopedViewSet):
     queryset = Conversation.objects.select_related("customer", "channel", "assigned_to")
@@ -163,7 +183,7 @@ class ConversationViewSet(OrganizationScopedViewSet):
 
 
 class MessageViewSet(viewsets.ModelViewSet):
-    queryset = Message.objects.select_related("sender", "conversation")
+    queryset = Message.objects.select_related("sender", "conversation__channel", "conversation__customer")
     serializer_class = MessageSerializer
     permission_classes = (IsAuthenticated,)
     http_method_names = ("get", "post", "patch", "head", "options")
@@ -174,13 +194,39 @@ class MessageViewSet(viewsets.ModelViewSet):
             return self.queryset.none()
         return self.queryset.filter(conversation__organization_id=org_id, conversation__organization__members=self.request.user)
 
+    @transaction.atomic
     def perform_create(self, serializer):
         conversation = serializer.validated_data["conversation"]
         if not Membership.objects.filter(organization=conversation.organization, user=self.request.user).exists():
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You are not a member of this organization.")
-        message = serializer.save(sender=self.request.user, direction=Message.Direction.OUTBOUND)
+
+        content = serializer.validated_data.get("content", "").strip()
+        if not content:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"content": "Message content is required."})
+
+        external_ids = (conversation.customer.metadata or {}).get("external_ids") or {}
+        external_customer_id = external_ids.get(conversation.channel.type)
+        if not external_customer_id:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"conversation": "The customer is not connected to this channel yet."})
+
+        adapter = get_adapter(conversation.channel.type, conversation.channel.credentials or {})
+        try:
+            provider_result = adapter.send_message(str(external_customer_id), content)
+        except Exception as exc:
+            from rest_framework.exceptions import APIException
+            raise APIException({"detail": f"Provider delivery failed: {exc}"}) from exc
+
+        message = serializer.save(
+            sender=self.request.user,
+            direction=Message.Direction.OUTBOUND,
+            external_id=str(provider_result.get("external_message_id") or ""),
+            metadata={"provider_delivery": provider_result.get("raw", provider_result)},
+        )
         Conversation.objects.filter(pk=conversation.pk).update(last_message_at=timezone.now(), updated_at=timezone.now())
+
         payload = MessageSerializer(message).data
         channel_layer = get_channel_layer()
         if channel_layer:
