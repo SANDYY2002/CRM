@@ -38,13 +38,26 @@ def _configured() -> bool:
     return all(os.getenv(key) for key in ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET", "YOUTUBE_REDIRECT_URI"))
 
 
+def _resolve_organization_id(request) -> int | None:
+    raw = request.headers.get("X-Organization-ID")
+    if raw:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    memberships = list(
+        Membership.objects.filter(user=request.user).values_list("organization_id", flat=True)[:2]
+    )
+    return memberships[0] if len(memberships) == 1 else None
+
+
 class YouTubeOAuthUrlView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def get(self, request):
-        try:
-            organization_id = int(request.headers.get("X-Organization-ID", "0"))
-        except ValueError:
+        organization_id = _resolve_organization_id(request)
+        if organization_id is None:
             return Response({"detail": "A valid organization is required."}, status=400)
         if not Membership.objects.filter(organization_id=organization_id, user=request.user).exists():
             return Response({"detail": "Organization access denied."}, status=403)
