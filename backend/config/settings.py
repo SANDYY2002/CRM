@@ -12,7 +12,7 @@ ALLOWED_HOSTS = [h.strip() for h in os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost
 INSTALLED_APPS = [
     'django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes',
     'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles',
-    'corsheaders', 'rest_framework', 'channels',
+    'corsheaders', 'rest_framework',
     'apps.accounts', 'apps.organizations', 'apps.customers', 'apps.leads',
     'apps.conversations', 'apps.channels', 'apps.analytics',
 ]
