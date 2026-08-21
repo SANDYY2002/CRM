@@ -8,6 +8,7 @@ export type Conversation = { id:number; organization:number; customer:number; cu
 export type Message = { id:number; conversation:number; sender:number|null; sender_name:string; direction:'inbound'|'outbound'|'internal'; message_type:string; content:string; attachment_url:string; metadata:Record<string,unknown>; is_read:boolean; created_at:string };
 export type DashboardResponse = { organization_id:number; stats:{conversations:number;customers:number;leads:number;unread_messages:number}; recent_activity:{id:number;customer:string;channel:string;content:string;direction:string;created_at:string}[] };
 export type Channel = { id:number; organization:number; type:string; name:string; external_id:string; is_active:boolean; metadata:Record<string, unknown> };
+export type ChannelHealth = { id:number; type:string; connected:boolean; missing:string[]; external_id:string };
 export type YouTubeVideo = { id:string; snippet?:{title?:string;description?:string;publishedAt?:string;thumbnails?:Record<string,{url?:string}>}; status?:{privacyStatus?:string}; statistics?:Record<string,string> };
 
 async function request<T>(path:string, options:RequestInit={}):Promise<T>{
@@ -31,6 +32,7 @@ export const api={
   sendMessage:(conversationId:number,content:string)=>request<Message>('/messages/',{method:'POST',body:JSON.stringify({conversation:conversationId,content,message_type:'text'})}),
   markConversationRead:(id:number)=>request<Conversation>(`/conversations/${id}/mark_read/`,{method:'POST'}),
   channels:()=>request<Channel[]>('/channels/'),
+  channelHealth:(id:number)=>request<ChannelHealth>(`/channels/${id}/health/`,{method:'POST'}),
   youtubeOAuthUrl:()=>request<{authorization_url:string}>('/youtube/oauth/url/'),
   uploadYouTubeVideo:({channelId,video,title,description,tags,privacy}:{channelId:number;video:File;title:string;description:string;tags:string;privacy:string})=>{const form=new FormData();form.append('channel_id',String(channelId));form.append('video',video);form.append('title',title);form.append('description',description);form.append('tags',tags);form.append('privacy_status',privacy);return request<{id:string;title:string}>('/youtube/upload/',{method:'POST',body:form});},
   youtubeVideos:(channelId:number)=>request<{items:YouTubeVideo[];nextPageToken?:string}>(`/youtube/channels/${channelId}/videos/`).then((data)=>data.items),
