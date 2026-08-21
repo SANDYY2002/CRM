@@ -99,18 +99,35 @@ class MessageSerializer(serializers.ModelSerializer):
         return obj.sender.get_full_name() if obj.sender else "Customer"
 
 
+def resolve_organization_id(request):
+    """Resolve the active workspace safely.
+
+    An explicit organization header/query value always wins. If the authenticated
+    user belongs to exactly one organization, that organization can be inferred
+    when an older/local browser session has not persisted the workspace ID yet.
+    Multi-organization users must explicitly select a workspace.
+    """
+    raw = request.query_params.get("organization") or request.headers.get("X-Organization-ID")
+    if raw:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return None
+
+    organization_ids = list(
+        Membership.objects.filter(user=request.user).values_list("organization_id", flat=True)[:2]
+    )
+    if len(organization_ids) == 1:
+        return organization_ids[0]
+    return None
+
+
 class OrganizationScopedViewSet(viewsets.ModelViewSet):
     permission_classes = (IsAuthenticated,)
     organization_field = "organization"
 
     def get_org_id(self):
-        raw = self.request.query_params.get("organization") or self.request.headers.get("X-Organization-ID")
-        if not raw:
-            return None
-        try:
-            return int(raw)
-        except (TypeError, ValueError):
-            return None
+        return resolve_organization_id(self.request)
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -189,8 +206,8 @@ class MessageViewSet(viewsets.ModelViewSet):
     http_method_names = ("get", "post", "patch", "head", "options")
 
     def get_queryset(self):
-        org_id = self.request.query_params.get("organization") or self.request.headers.get("X-Organization-ID")
-        if not org_id:
+        org_id = resolve_organization_id(self.request)
+        if org_id is None:
             return self.queryset.none()
         return self.queryset.filter(conversation__organization_id=org_id, conversation__organization__members=self.request.user)
 
@@ -236,10 +253,8 @@ class MessageViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def dashboard(request):
-    raw = request.query_params.get("organization") or request.headers.get("X-Organization-ID")
-    try:
-        org_id = int(raw)
-    except (TypeError, ValueError):
+    org_id = resolve_organization_id(request)
+    if org_id is None:
         return Response({"detail": "A valid organization is required."}, status=status.HTTP_400_BAD_REQUEST)
     if not Membership.objects.filter(organization_id=org_id, user=request.user).exists():
         return Response({"detail": "Organization access denied."}, status=status.HTTP_403_FORBIDDEN)
@@ -247,7 +262,7 @@ def dashboard(request):
     leads = Lead.objects.filter(organization_id=org_id)
     customers = Customer.objects.filter(organization_id=org_id)
     unread = Message.objects.filter(conversation__organization_id=org_id, is_read=False, direction=Message.Direction.INBOUND).count()
-    recent_messages = Message.objects.filter(conversation__organization_id=org_id).select_related('conversation__customer', 'conversation__channel').order_by('-created_at')[:8]
+    recent_messages = Message.objects.filter(conversation__organization_id=org_id).select_related("conversation__customer", "conversation__channel").order_by("-created_at")[:8]
     return Response({
         "organization_id": org_id,
         "stats": {"conversations": conversations.count(), "customers": customers.count(), "leads": leads.count(), "unread_messages": unread},
