@@ -13,7 +13,19 @@ export type YouTubeVideo = { id:string; snippet?:{title?:string;description?:str
 
 async function request<T>(path:string, options:RequestInit={}):Promise<T>{
   const token=localStorage.getItem('crm_access_token');
-  const response=await fetch(`${API_URL}${path}`,{...options,headers:{...(options.body instanceof FormData?{}:{'Content-Type':'application/json'}),...(token?{Authorization:`Bearer ${token}`}:{ }),(localStorage.getItem('crm_organization_id')?{'X-Organization-ID':localStorage.getItem('crm_organization_id')!}:{ }),...(options.headers||{})}});
+  const organizationId=localStorage.getItem('crm_organization_id');
+  const headers:Record<string,string>={};
+
+  if(!(options.body instanceof FormData)) headers['Content-Type']='application/json';
+  if(token) headers.Authorization=`Bearer ${token}`;
+  if(organizationId) headers['X-Organization-ID']=organizationId;
+
+  if(options.headers){
+    const incoming=new Headers(options.headers);
+    incoming.forEach((value,key)=>{headers[key]=value;});
+  }
+
+  const response=await fetch(`${API_URL}${path}`,{...options,headers});
   const data=await response.json().catch(()=>({}));
   if(!response.ok)throw new Error(data.detail||'Request failed');
   return data as T;
