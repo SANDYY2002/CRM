@@ -55,17 +55,21 @@ USE_TZ = True
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# Local development commonly uses either http://localhost:5173 or
-# http://127.0.0.1:5173. Keep both allowed by default; production should
-# override this with an explicit CORS_ALLOWED_ORIGINS value.
-CORS_ALLOWED_ORIGINS = [
-    x.strip()
-    for x in os.getenv(
-        'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173',
-    ).split(',')
-    if x.strip()
+# Local development: explicitly support both Vite loopback origins even if a
+# stale .env contains only one of them. Production should set an explicit list.
+_env_cors_origins = [
+    origin.strip()
+    for origin in os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
+    if origin.strip()
 ]
+_local_origins = ['http://localhost:5173', 'http://127.0.0.1:5173'] if DEBUG else []
+CORS_ALLOWED_ORIGINS = list(dict.fromkeys(_env_cors_origins + _local_origins))
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https?://localhost:5173$',
+    r'^https?://127\.0\.0\.1:5173$',
+] if DEBUG else []
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = list(dict.fromkeys(_env_cors_origins + _local_origins))
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': ('rest_framework_simplejwt.authentication.JWTAuthentication',),
