@@ -14,7 +14,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles',
     'corsheaders', 'rest_framework',
     'apps.accounts', 'apps.organizations', 'apps.customers', 'apps.leads',
-    'apps.conversations', 'apps.channels', 'apps.analytics',
+    'apps.conversations', 'apps.channels.apps.ChannelsConfig', 'apps.analytics',
 ]
 
 MIDDLEWARE = [
