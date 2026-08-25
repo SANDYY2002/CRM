@@ -46,10 +46,15 @@ def _resolve_organization_id(request) -> int | None:
         except (TypeError, ValueError):
             return None
 
-    memberships = list(
-        Membership.objects.filter(user=request.user).values_list("organization_id", flat=True)[:2]
-    )
+    memberships = list(Membership.objects.filter(user=request.user).values_list("organization_id", flat=True)[:2])
     return memberships[0] if len(memberships) == 1 else None
+
+
+def _frontend_redirect(frontend: str, status_value: str, reason: str = "") -> str:
+    query = f"?youtube={status_value}"
+    if reason:
+        query += f"&reason={reason}"
+    return f"{frontend.rstrip('/')}/{query.lstrip('?')}"
 
 
 class YouTubeOAuthUrlView(APIView):
@@ -82,14 +87,14 @@ class YouTubeOAuthCallbackView(APIView):
         frontend = os.getenv("FRONTEND_URL", "http://localhost:5173")
         error = request.query_params.get("error")
         if error:
-            return redirect(f"{frontend}/settings?youtube=error&reason={error}")
+            return redirect(_frontend_redirect(frontend, "error", error))
 
         try:
             payload = signing.loads(request.query_params.get("state", ""), salt=STATE_SALT, max_age=STATE_MAX_AGE)
         except signing.BadSignature:
-            return redirect(f"{frontend}/settings?youtube=error&reason=invalid_state")
+            return redirect(_frontend_redirect(frontend, "error", "invalid_state"))
         if not _configured():
-            return redirect(f"{frontend}/settings?youtube=error&reason=server_not_configured")
+            return redirect(_frontend_redirect(frontend, "error", "server_not_configured"))
 
         flow = Flow.from_client_config(_client_config(), scopes=YOUTUBE_SCOPES, redirect_uri=os.getenv("YOUTUBE_REDIRECT_URI"))
         flow.fetch_token(authorization_response=request.build_absolute_uri())
@@ -98,7 +103,7 @@ class YouTubeOAuthCallbackView(APIView):
         channel_response = youtube.channels().list(part="snippet,statistics", mine=True).execute()
         channel_items = channel_response.get("items", [])
         if not channel_items:
-            return redirect(f"{frontend}/settings?youtube=error&reason=no_channel")
+            return redirect(_frontend_redirect(frontend, "error", "no_channel"))
 
         remote = channel_items[0]
         snippet = remote.get("snippet") or {}
@@ -124,4 +129,4 @@ class YouTubeOAuthCallbackView(APIView):
                 },
             },
         )
-        return redirect(f"{frontend}/settings?youtube=connected")
+        return redirect(_frontend_redirect(frontend, "connected"))
