@@ -311,5 +311,22 @@ def login(request):
     user = authenticate(username=username, password=password)
     if not user:
         return Response({"detail": "Invalid username or password."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # Legacy Django-admin users may exist without a CRM workspace. Provision a
+    # single personal workspace on first CRM login so they can use organization-
+    # scoped features without manual database edits. Existing memberships are untouched.
+    if not Membership.objects.filter(user=user).exists():
+        with transaction.atomic():
+            base_slug = slugify(f"{user.username}-workspace") or "workspace"
+            slug = base_slug
+            counter = 2
+            while Organization.objects.filter(slug=slug).exists():
+                slug = f"{base_slug}-{counter}"
+                counter += 1
+            display_name = user.get_full_name().strip() or user.username
+            organization = Organization.objects.create(name=f"{display_name}'s Workspace", slug=slug)
+            Membership.objects.create(organization=organization, user=user, role="owner")
+
+    organizations = user.organizations.all()
     refresh = RefreshToken.for_user(user)
-    return Response({"user": UserSerializer(user).data, "organizations": OrganizationSerializer(user.organizations.all(), many=True).data, "access": str(refresh.access_token), "refresh": str(refresh)})
+    return Response({"user": UserSerializer(user).data, "organizations": OrganizationSerializer(organizations, many=True).data, "access": str(refresh.access_token), "refresh": str(refresh)})
