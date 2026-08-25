@@ -15,9 +15,19 @@ export function ChannelsPage() {
   const [health,setHealth]=useState<Record<number,ChannelHealth>>({});
   const [checking,setChecking]=useState<Record<number,boolean>>({});
   const [error,setError]=useState('');
+  const [notice,setNotice]=useState('');
 
   const load = () => { setError(''); api.channels().then(setChannels).catch((err:Error)=>setError(err.message)); };
-  useEffect(()=>{load();},[]);
+
+  useEffect(()=>{
+    load();
+    const params = new URLSearchParams(window.location.search);
+    const youtube = params.get('youtube');
+    const reason = params.get('reason');
+    if (youtube === 'connected') setNotice('YouTube channel connected successfully.');
+    if (youtube === 'error') setError(`YouTube connection failed${reason ? `: ${reason.replaceAll('_',' ')}` : '.'}`);
+    if (youtube) window.history.replaceState({}, document.title, window.location.pathname);
+  },[]);
 
   const checkHealth = async (channelId:number) => {
     setChecking(current=>({...current,[channelId]:true}));
@@ -26,10 +36,20 @@ export function ChannelsPage() {
     finally { setChecking(current=>({...current,[channelId]:false})); }
   };
 
-  const youtubeConnect=async()=>{try{const response=await api.youtubeOAuthUrl();window.location.assign(response.authorization_url);}catch(err){setError(err instanceof Error?err.message:'Unable to start YouTube connection.');}};
+  const youtubeConnect=async()=>{
+    setError('');
+    setNotice('');
+    try{
+      const response=await api.youtubeOAuthUrl();
+      window.location.assign(response.authorization_url);
+    }catch(err){
+      setError(err instanceof Error ? err.message : 'Unable to start YouTube connection.');
+    }
+  };
 
   return <section className="page-view">
     <div className="page-heading"><div><p className="eyebrow">OMNICHANNEL</p><h1>Channels</h1><p className="muted">Connect real provider accounts and verify their configuration without exposing credentials.</p></div><button className="secondary-button" onClick={load}><RefreshCw size={16}/> Refresh</button></div>
+    {notice&&<div className="success-message"><CheckCircle2 size={16}/>{notice}</div>}
     {error&&<div className="form-error">{error}</div>}
     <div className="channel-grid">{providers.map(({type,name,icon:Icon,description})=>{
       const connected=channels.filter(channel=>channel.type===type&&channel.is_active);
